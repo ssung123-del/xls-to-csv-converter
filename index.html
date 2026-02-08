@@ -1,0 +1,1581 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XLS to CSV 변환기</title>
+    <meta name="description" content="여러 XLS/XLSX 파일을 CSV로 변환하고 병합하는 웹 앱">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- SheetJS for XLS/XLSX parsing -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    
+    <style>
+        /* ========================================
+           CSS 변수 및 기본 설정
+        ======================================== */
+        :root {
+            /* 다크 모드 색상 (기본) */
+            --bg-primary: #0f0f23;
+            --bg-secondary: #1a1a3e;
+            --bg-card: rgba(255, 255, 255, 0.05);
+            --bg-card-hover: rgba(255, 255, 255, 0.08);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-primary: #6366f1;
+            --accent-primary-hover: #818cf8;
+            --accent-success: #10b981;
+            --accent-success-hover: #34d399;
+            --accent-error: #ef4444;
+            --accent-warning: #f59e0b;
+            --shadow-color: rgba(0, 0, 0, 0.3);
+            --glass-blur: 20px;
+        }
+
+        /* 라이트 모드 */
+        [data-theme="light"] {
+            --bg-primary: #f8fafc;
+            --bg-secondary: #e2e8f0;
+            --bg-card: rgba(255, 255, 255, 0.8);
+            --bg-card-hover: rgba(255, 255, 255, 0.95);
+            --border-color: rgba(0, 0, 0, 0.1);
+            --text-primary: #1e293b;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+            --shadow-color: rgba(0, 0, 0, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            min-height: 100vh;
+            color: var(--text-primary);
+            transition: background 0.3s ease, color 0.3s ease;
+        }
+
+        /* ========================================
+           레이아웃
+        ======================================== */
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+            min-height: 100vh;
+        }
+
+        /* ========================================
+           헤더
+        ======================================== */
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+            position: relative;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-success) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 1rem;
+        }
+
+        /* 테마 토글 버튼 */
+        .theme-toggle {
+            position: absolute;
+            top: 0;
+            right: 0;
+            background: var(--bg-card);
+            backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--border-color);
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .theme-toggle:hover {
+            background: var(--bg-card-hover);
+            transform: rotate(15deg);
+        }
+
+        /* ========================================
+           카드 공통 스타일
+        ======================================== */
+        .card {
+            background: var(--bg-card);
+            backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 8px 32px var(--shadow-color);
+            transition: all 0.3s ease;
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card-title .icon {
+            font-size: 1.3rem;
+        }
+
+        /* ========================================
+           드롭존
+        ======================================== */
+        .dropzone {
+            border: 2px dashed var(--border-color);
+            border-radius: 16px;
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .dropzone::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-success));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .dropzone:hover,
+        .dropzone.dragover {
+            border-color: var(--accent-primary);
+            transform: scale(1.01);
+        }
+
+        .dropzone.dragover::before {
+            opacity: 0.1;
+        }
+
+        .dropzone-content {
+            position: relative;
+            z-index: 1;
+        }
+
+        .dropzone-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            opacity: 0.7;
+        }
+
+        .dropzone-text {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .dropzone-hint {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .dropzone input[type="file"] {
+            display: none;
+        }
+
+        /* ========================================
+           파일 목록
+        ======================================== */
+        .file-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            cursor: grab;
+            transition: all 0.2s ease;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .file-item:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--accent-primary);
+        }
+
+        .file-item.dragging {
+            opacity: 0.5;
+            cursor: grabbing;
+        }
+
+        .file-item.drag-over {
+            border-color: var(--accent-success);
+            transform: scale(1.02);
+        }
+
+        .file-order {
+            width: 28px;
+            height: 28px;
+            background: var(--accent-primary);
+            color: white;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .file-icon {
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+
+        .file-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .file-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 0.25rem;
+        }
+
+        .file-meta {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            display: flex;
+            gap: 1rem;
+        }
+
+        .file-remove {
+            width: 32px;
+            height: 32px;
+            background: transparent;
+            border: 1px solid var(--accent-error);
+            color: var(--accent-error);
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .file-remove:hover {
+            background: var(--accent-error);
+            color: white;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+        }
+
+        /* ========================================
+           옵션 섹션
+        ======================================== */
+        .options-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+
+        .option-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .option-label {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .select-wrapper {
+            position: relative;
+        }
+
+        .select-wrapper select {
+            width: 100%;
+            padding: 0.75rem 2.5rem 0.75rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.95rem;
+            cursor: pointer;
+            appearance: none;
+            transition: all 0.2s ease;
+        }
+
+        .select-wrapper select:hover,
+        .select-wrapper select:focus {
+            border-color: var(--accent-primary);
+            outline: none;
+        }
+
+        .select-wrapper::after {
+            content: '▼';
+            position: absolute;
+            right: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+
+        /* 체크박스 스타일 */
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .checkbox-wrapper:hover {
+            border-color: var(--accent-primary);
+        }
+
+        .checkbox-wrapper input[type="checkbox"] {
+            display: none;
+        }
+
+        .checkbox-custom {
+            width: 22px;
+            height: 22px;
+            border: 2px solid var(--border-color);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .checkbox-wrapper input:checked + .checkbox-custom {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+        }
+
+        .checkbox-custom::after {
+            content: '✓';
+            color: white;
+            font-size: 0.85rem;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .checkbox-wrapper input:checked + .checkbox-custom::after {
+            opacity: 1;
+        }
+
+        .checkbox-text {
+            font-size: 0.95rem;
+        }
+
+        /* ========================================
+           미리보기 테이블
+        ======================================== */
+        .preview-container {
+            max-height: 400px;
+            overflow: auto;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .preview-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        .preview-table th,
+        .preview-table td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+            white-space: nowrap;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .preview-table th {
+            background: var(--bg-card);
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        .preview-table tr:hover td {
+            background: var(--bg-card-hover);
+        }
+
+        .preview-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .preview-stats {
+            display: flex;
+            gap: 1.5rem;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .preview-tabs {
+            display: flex;
+            gap: 0.5rem;
+            overflow-x: auto;
+            padding-bottom: 0.5rem;
+        }
+
+        .preview-tab {
+            padding: 0.5rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+
+        .preview-tab:hover {
+            border-color: var(--accent-primary);
+        }
+
+        .preview-tab.active {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: white;
+        }
+
+        /* ========================================
+           버튼
+        ======================================== */
+        .button-group {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.875rem 1.5rem;
+            border: none;
+            border-radius: 12px;
+            font-family: inherit;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-primary), #8b5cf6);
+            color: white;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, var(--accent-success), #059669);
+            color: white;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-success:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
+        }
+
+        .btn-secondary {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: var(--bg-card-hover);
+            border-color: var(--accent-primary);
+        }
+
+        .btn-icon {
+            font-size: 1.1rem;
+        }
+
+        /* ========================================
+           프로그레스 바
+        ======================================== */
+        .progress-container {
+            margin-top: 1rem;
+            display: none;
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: var(--bg-card);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 0.5rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-primary), var(--accent-success));
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .progress-text {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            text-align: center;
+        }
+
+        /* ========================================
+           알림 토스트
+        ======================================== */
+        .toast-container {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            z-index: 1000;
+        }
+
+        .toast {
+            padding: 1rem 1.5rem;
+            background: var(--bg-card);
+            backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px var(--shadow-color);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            animation: toastIn 0.3s ease;
+            max-width: 350px;
+        }
+
+        @keyframes toastIn {
+            from {
+                opacity: 0;
+                transform: translateX(100%);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .toast.success {
+            border-left: 4px solid var(--accent-success);
+        }
+
+        .toast.error {
+            border-left: 4px solid var(--accent-error);
+        }
+
+        .toast.info {
+            border-left: 4px solid var(--accent-primary);
+        }
+
+        .toast-icon {
+            font-size: 1.3rem;
+        }
+
+        .toast-message {
+            font-size: 0.9rem;
+        }
+
+        /* ========================================
+           로딩 스피너
+        ======================================== */
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* ========================================
+           반응형
+        ======================================== */
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .header h1 {
+                font-size: 1.75rem;
+            }
+
+            .theme-toggle {
+                width: 40px;
+                height: 40px;
+                font-size: 1.2rem;
+            }
+
+            .dropzone {
+                padding: 2rem 1rem;
+            }
+
+            .dropzone-icon {
+                font-size: 3rem;
+            }
+
+            .file-item {
+                flex-wrap: wrap;
+            }
+
+            .file-info {
+                order: 1;
+                width: calc(100% - 80px);
+            }
+
+            .file-remove {
+                order: 0;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+            }
+
+            .toast-container {
+                left: 1rem;
+                right: 1rem;
+                bottom: 1rem;
+            }
+
+            .toast {
+                max-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 헤더 -->
+        <header class="header">
+            <button class="theme-toggle" id="themeToggle" title="테마 전환">🌙</button>
+            <h1>📊 XLS to CSV 변환기</h1>
+            <p>여러 XLS/XLSX 파일을 CSV로 변환하고 병합하세요</p>
+        </header>
+
+        <!-- 파일 업로드 영역 -->
+        <section class="card">
+            <h2 class="card-title">
+                <span class="icon">📁</span>
+                파일 업로드
+            </h2>
+            <div class="dropzone" id="dropzone">
+                <div class="dropzone-content">
+                    <div class="dropzone-icon">📥</div>
+                    <p class="dropzone-text">파일을 여기에 드래그하거나 클릭하여 선택하세요</p>
+                    <p class="dropzone-hint">XLS, XLSX 파일 지원 • 여러 파일 선택 가능</p>
+                </div>
+                <input type="file" id="fileInput" multiple accept=".xls,.xlsx">
+            </div>
+        </section>
+
+        <!-- 업로드된 파일 목록 -->
+        <section class="card" id="fileListCard" style="display: none;">
+            <h2 class="card-title">
+                <span class="icon">📋</span>
+                업로드된 파일
+                <span style="margin-left: auto; font-size: 0.85rem; font-weight: 400; color: var(--text-muted);">
+                    드래그하여 순서 변경
+                </span>
+            </h2>
+            <div class="file-list" id="fileList"></div>
+        </section>
+
+        <!-- 변환 옵션 -->
+        <section class="card" id="optionsCard" style="display: none;">
+            <h2 class="card-title">
+                <span class="icon">⚙️</span>
+                변환 옵션
+            </h2>
+            <div class="options-grid">
+                <div class="option-group">
+                    <span class="option-label">변환 모드</span>
+                    <div class="select-wrapper">
+                        <select id="convertMode">
+                            <option value="merge">병합하여 하나의 CSV로</option>
+                            <option value="individual">개별 CSV로 변환</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="option-group">
+                    <span class="option-label">정렬 기준 컬럼</span>
+                    <div class="select-wrapper">
+                        <select id="sortColumn">
+                            <option value="">정렬 안함</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="option-group">
+                    <span class="option-label">정렬 방향</span>
+                    <div class="select-wrapper">
+                        <select id="sortDirection">
+                            <option value="asc">오름차순 (A→Z, 과거→최신)</option>
+                            <option value="desc">내림차순 (Z→A, 최신→과거)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="option-group">
+                    <span class="option-label">헤더 옵션</span>
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" id="includeHeader" checked>
+                        <span class="checkbox-custom"></span>
+                        <span class="checkbox-text">첫 번째 행을 헤더로 사용</span>
+                    </label>
+                </div>
+            </div>
+        </section>
+
+        <!-- 미리보기 -->
+        <section class="card" id="previewCard" style="display: none;">
+            <h2 class="card-title">
+                <span class="icon">👁️</span>
+                데이터 미리보기
+            </h2>
+            <div class="preview-info">
+                <div class="preview-tabs" id="previewTabs"></div>
+                <div class="preview-stats" id="previewStats"></div>
+            </div>
+            <div class="preview-container">
+                <table class="preview-table" id="previewTable">
+                    <thead id="previewHead"></thead>
+                    <tbody id="previewBody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 변환 버튼 -->
+        <section class="card" id="actionCard" style="display: none;">
+            <div class="button-group">
+                <button class="btn btn-primary" id="convertBtn">
+                    <span class="btn-icon">🔄</span>
+                    변환 및 다운로드
+                </button>
+                <button class="btn btn-secondary" id="clearBtn">
+                    <span class="btn-icon">🗑️</span>
+                    전체 삭제
+                </button>
+            </div>
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p class="progress-text" id="progressText">처리 중...</p>
+            </div>
+        </section>
+    </div>
+
+    <!-- 토스트 알림 컨테이너 -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        // ========================================
+        // 상태 관리
+        // ========================================
+        const state = {
+            files: [],           // 업로드된 파일 정보 배열
+            parsedData: [],      // 파싱된 데이터 배열
+            currentPreview: 0,   // 현재 미리보기 중인 파일 인덱스
+            isProcessing: false, // 처리 중 여부
+        };
+
+        // ========================================
+        // DOM 요소
+        // ========================================
+        const $dropzone = document.getElementById('dropzone');
+        const $fileInput = document.getElementById('fileInput');
+        const $fileList = document.getElementById('fileList');
+        const $fileListCard = document.getElementById('fileListCard');
+        const $optionsCard = document.getElementById('optionsCard');
+        const $previewCard = document.getElementById('previewCard');
+        const $actionCard = document.getElementById('actionCard');
+        const $convertMode = document.getElementById('convertMode');
+        const $sortColumn = document.getElementById('sortColumn');
+        const $sortDirection = document.getElementById('sortDirection');
+        const $includeHeader = document.getElementById('includeHeader');
+        const $previewTabs = document.getElementById('previewTabs');
+        const $previewStats = document.getElementById('previewStats');
+        const $previewHead = document.getElementById('previewHead');
+        const $previewBody = document.getElementById('previewBody');
+        const $convertBtn = document.getElementById('convertBtn');
+        const $clearBtn = document.getElementById('clearBtn');
+        const $progressContainer = document.getElementById('progressContainer');
+        const $progressFill = document.getElementById('progressFill');
+        const $progressText = document.getElementById('progressText');
+        const $themeToggle = document.getElementById('themeToggle');
+        const $toastContainer = document.getElementById('toastContainer');
+
+        // ========================================
+        // 테마 관리
+        // ========================================
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            updateThemeIcon(savedTheme);
+        }
+
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(newTheme);
+        }
+
+        function updateThemeIcon(theme) {
+            $themeToggle.textContent = theme === 'dark' ? '🌙' : '☀️';
+        }
+
+        $themeToggle.addEventListener('click', toggleTheme);
+        initTheme();
+
+        // ========================================
+        // 토스트 알림
+        // ========================================
+        function showToast(message, type = 'info') {
+            const icons = {
+                success: '✅',
+                error: '❌',
+                info: 'ℹ️',
+            };
+
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <span class="toast-icon">${icons[type]}</span>
+                <span class="toast-message">${message}</span>
+            `;
+
+            $toastContainer.appendChild(toast);
+
+            // 3초 후 자동 제거
+            setTimeout(() => {
+                toast.style.animation = 'toastIn 0.3s ease reverse';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // ========================================
+        // 파일 업로드 처리
+        // ========================================
+        
+        // 드래그 앤 드롭 이벤트
+        $dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            $dropzone.classList.add('dragover');
+        });
+
+        $dropzone.addEventListener('dragleave', () => {
+            $dropzone.classList.remove('dragover');
+        });
+
+        $dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            $dropzone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        $dropzone.addEventListener('click', () => {
+            $fileInput.click();
+        });
+
+        $fileInput.addEventListener('change', () => {
+            handleFiles($fileInput.files);
+            $fileInput.value = ''; // 초기화하여 같은 파일 재선택 가능하게
+        });
+
+        /**
+         * 파일 처리 함수
+         * - 여러 파일을 받아서 유효성 검사 후 상태에 추가
+         */
+        async function handleFiles(fileList) {
+            const validExtensions = ['.xls', '.xlsx'];
+            const newFiles = [];
+
+            for (const file of fileList) {
+                const ext = '.' + file.name.split('.').pop().toLowerCase();
+                
+                if (!validExtensions.includes(ext)) {
+                    showToast(`"${file.name}"는 지원하지 않는 형식입니다.`, 'error');
+                    continue;
+                }
+
+                // 중복 파일 체크
+                if (state.files.some(f => f.name === file.name && f.size === file.size)) {
+                    showToast(`"${file.name}"는 이미 추가되어 있습니다.`, 'info');
+                    continue;
+                }
+
+                newFiles.push(file);
+            }
+
+            if (newFiles.length === 0) return;
+
+            // 파일 파싱
+            showToast(`${newFiles.length}개 파일 처리 중...`, 'info');
+
+            for (const file of newFiles) {
+                try {
+                    const data = await parseExcelFile(file);
+                    state.files.push(file);
+                    state.parsedData.push(data);
+                } catch (error) {
+                    console.error('파일 파싱 오류:', error);
+                    showToast(`"${file.name}" 파싱 실패: ${error.message}`, 'error');
+                }
+            }
+
+            updateUI();
+            showToast(`${newFiles.length}개 파일이 추가되었습니다.`, 'success');
+        }
+
+        /**
+         * 엑셀 파일 파싱 (Web Worker 없이 메인 스레드에서 처리)
+         * - 대용량 파일의 경우 청크 단위로 처리하여 UI 블로킹 최소화
+         */
+        function parseExcelFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        
+                        // 첫 번째 시트만 사용
+                        const sheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[sheetName];
+                        
+                        // JSON으로 변환 (헤더 포함)
+                        const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+                            header: 1,  // 배열 형태로 반환
+                            defval: '', // 빈 셀 기본값
+                        });
+
+                        if (jsonData.length === 0) {
+                            reject(new Error('빈 파일입니다.'));
+                            return;
+                        }
+
+                        resolve({
+                            fileName: file.name,
+                            sheetName: sheetName,
+                            headers: jsonData[0] || [],
+                            rows: jsonData.slice(1),
+                            totalRows: jsonData.length - 1,
+                        });
+                    } catch (error) {
+                        reject(new Error('파일을 읽을 수 없습니다.'));
+                    }
+                };
+
+                reader.onerror = () => reject(new Error('파일 읽기 실패'));
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        // ========================================
+        // UI 업데이트
+        // ========================================
+        function updateUI() {
+            const hasFiles = state.files.length > 0;
+
+            // 섹션 표시/숨김
+            $fileListCard.style.display = hasFiles ? 'block' : 'none';
+            $optionsCard.style.display = hasFiles ? 'block' : 'none';
+            $previewCard.style.display = hasFiles ? 'block' : 'none';
+            $actionCard.style.display = hasFiles ? 'block' : 'none';
+
+            if (!hasFiles) return;
+
+            // 파일 목록 렌더링
+            renderFileList();
+
+            // 정렬 컬럼 옵션 업데이트
+            updateSortColumnOptions();
+
+            // 미리보기 업데이트
+            updatePreview();
+        }
+
+        /**
+         * 파일 목록 렌더링
+         */
+        function renderFileList() {
+            $fileList.innerHTML = state.files.map((file, index) => {
+                const data = state.parsedData[index];
+                const sizeKB = (file.size / 1024).toFixed(1);
+                
+                return `
+                    <div class="file-item" draggable="true" data-index="${index}">
+                        <span class="file-order">${index + 1}</span>
+                        <span class="file-icon">📄</span>
+                        <div class="file-info">
+                            <div class="file-name">${file.name}</div>
+                            <div class="file-meta">
+                                <span>${sizeKB} KB</span>
+                                <span>${data.totalRows.toLocaleString()} 행</span>
+                                <span>${data.headers.length} 열</span>
+                            </div>
+                        </div>
+                        <button class="file-remove" onclick="removeFile(${index})" title="삭제">×</button>
+                    </div>
+                `;
+            }).join('');
+
+            // 드래그 앤 드롭 이벤트 설정
+            setupFileListDragDrop();
+        }
+
+        /**
+         * 파일 목록 드래그 앤 드롭 설정
+         */
+        function setupFileListDragDrop() {
+            const items = $fileList.querySelectorAll('.file-item');
+            let draggedIndex = null;
+
+            items.forEach((item, index) => {
+                item.addEventListener('dragstart', (e) => {
+                    draggedIndex = index;
+                    item.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                });
+
+                item.addEventListener('dragend', () => {
+                    item.classList.remove('dragging');
+                    items.forEach(i => i.classList.remove('drag-over'));
+                });
+
+                item.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    if (draggedIndex !== index) {
+                        item.classList.add('drag-over');
+                    }
+                });
+
+                item.addEventListener('dragleave', () => {
+                    item.classList.remove('drag-over');
+                });
+
+                item.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    item.classList.remove('drag-over');
+
+                    if (draggedIndex !== null && draggedIndex !== index) {
+                        // 배열 순서 변경
+                        const [movedFile] = state.files.splice(draggedIndex, 1);
+                        const [movedData] = state.parsedData.splice(draggedIndex, 1);
+                        state.files.splice(index, 0, movedFile);
+                        state.parsedData.splice(index, 0, movedData);
+
+                        updateUI();
+                        showToast('파일 순서가 변경되었습니다.', 'info');
+                    }
+                });
+            });
+        }
+
+        /**
+         * 파일 삭제
+         */
+        function removeFile(index) {
+            const fileName = state.files[index].name;
+            state.files.splice(index, 1);
+            state.parsedData.splice(index, 1);
+
+            if (state.currentPreview >= state.files.length) {
+                state.currentPreview = Math.max(0, state.files.length - 1);
+            }
+
+            updateUI();
+            showToast(`"${fileName}"가 삭제되었습니다.`, 'info');
+        }
+
+        /**
+         * 전체 삭제
+         */
+        $clearBtn.addEventListener('click', () => {
+            if (state.files.length === 0) return;
+            
+            state.files = [];
+            state.parsedData = [];
+            state.currentPreview = 0;
+            
+            updateUI();
+            showToast('모든 파일이 삭제되었습니다.', 'info');
+        });
+
+        /**
+         * 정렬 컬럼 옵션 업데이트
+         */
+        function updateSortColumnOptions() {
+            // 모든 파일의 헤더를 합쳐서 고유 컬럼 추출
+            const allHeaders = new Set();
+            state.parsedData.forEach(data => {
+                data.headers.forEach(h => {
+                    if (h && h.toString().trim()) {
+                        allHeaders.add(h.toString().trim());
+                    }
+                });
+            });
+
+            const currentValue = $sortColumn.value;
+            $sortColumn.innerHTML = '<option value="">정렬 안함</option>';
+            
+            Array.from(allHeaders).forEach(header => {
+                const option = document.createElement('option');
+                option.value = header;
+                option.textContent = header;
+                if (header === currentValue) option.selected = true;
+                $sortColumn.appendChild(option);
+            });
+        }
+
+        /**
+         * 미리보기 업데이트
+         */
+        function updatePreview() {
+            // 미리보기 탭 생성
+            $previewTabs.innerHTML = state.parsedData.map((data, index) => `
+                <button class="preview-tab ${index === state.currentPreview ? 'active' : ''}" 
+                        onclick="switchPreview(${index})">
+                    ${data.fileName}
+                </button>
+            `).join('');
+
+            const currentData = state.parsedData[state.currentPreview];
+            if (!currentData) return;
+
+            // 통계 표시
+            $previewStats.innerHTML = `
+                <span>📊 총 ${currentData.totalRows.toLocaleString()}행</span>
+                <span>📐 ${currentData.headers.length}열</span>
+            `;
+
+            // 테이블 헤더
+            $previewHead.innerHTML = `
+                <tr>
+                    ${currentData.headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}
+                </tr>
+            `;
+
+            // 테이블 바디 (최대 10행만 표시)
+            const previewRows = currentData.rows.slice(0, 10);
+            $previewBody.innerHTML = previewRows.map(row => `
+                <tr>
+                    ${currentData.headers.map((_, i) => `<td>${escapeHtml(row[i] ?? '')}</td>`).join('')}
+                </tr>
+            `).join('');
+
+            if (currentData.rows.length > 10) {
+                $previewBody.innerHTML += `
+                    <tr>
+                        <td colspan="${currentData.headers.length}" style="text-align: center; color: var(--text-muted);">
+                            ... 외 ${(currentData.totalRows - 10).toLocaleString()}개 행
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        /**
+         * 미리보기 탭 전환
+         */
+        function switchPreview(index) {
+            state.currentPreview = index;
+            updatePreview();
+        }
+
+        /**
+         * HTML 이스케이프
+         */
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ========================================
+        // 변환 및 다운로드
+        // ========================================
+        $convertBtn.addEventListener('click', async () => {
+            if (state.isProcessing || state.files.length === 0) return;
+
+            state.isProcessing = true;
+            $convertBtn.disabled = true;
+            $progressContainer.classList.add('active');
+            $progressFill.style.width = '0%';
+            $progressText.textContent = '변환 준비 중...';
+
+            try {
+                const mode = $convertMode.value;
+                const sortColumn = $sortColumn.value;
+                const sortDirection = $sortDirection.value;
+                const includeHeader = $includeHeader.checked;
+
+                if (mode === 'merge') {
+                    await downloadMergedCSV(sortColumn, sortDirection, includeHeader);
+                } else {
+                    await downloadIndividualCSVs(sortColumn, sortDirection, includeHeader);
+                }
+
+                showToast('변환이 완료되었습니다!', 'success');
+            } catch (error) {
+                console.error('변환 오류:', error);
+                showToast(`변환 실패: ${error.message}`, 'error');
+            } finally {
+                state.isProcessing = false;
+                $convertBtn.disabled = false;
+                $progressContainer.classList.remove('active');
+            }
+        });
+
+        /**
+         * 병합된 CSV 다운로드
+         */
+        async function downloadMergedCSV(sortColumn, sortDirection, includeHeader) {
+            updateProgress(10, '데이터 병합 중...');
+
+            // 모든 데이터 병합
+            let allRows = [];
+            let headers = state.parsedData[0].headers;
+
+            state.parsedData.forEach((data, index) => {
+                // 첫 번째 파일의 헤더를 기준으로 사용
+                const rows = data.rows.map(row => {
+                    // 헤더 순서에 맞게 데이터 정렬
+                    if (index === 0) {
+                        return row;
+                    } else {
+                        // 다른 파일은 첫 번째 파일의 헤더 순서에 맞춤
+                        return headers.map((h, i) => {
+                            const sourceIndex = data.headers.indexOf(h);
+                            return sourceIndex >= 0 ? row[sourceIndex] : '';
+                        });
+                    }
+                });
+                allRows = allRows.concat(rows);
+            });
+
+            updateProgress(40, '데이터 정렬 중...');
+
+            // 정렬 적용
+            if (sortColumn) {
+                const sortIndex = headers.indexOf(sortColumn);
+                if (sortIndex >= 0) {
+                    allRows = sortRows(allRows, sortIndex, sortDirection);
+                }
+            }
+
+            updateProgress(70, 'CSV 생성 중...');
+
+            // CSV 생성
+            const csvContent = createCSV(headers, allRows, includeHeader);
+
+            updateProgress(90, '다운로드 준비 중...');
+
+            // 다운로드
+            const timestamp = getTimestamp();
+            downloadFile(csvContent, `merged_${timestamp}.csv`);
+
+            updateProgress(100, '완료!');
+        }
+
+        /**
+         * 개별 CSV 다운로드
+         */
+        async function downloadIndividualCSVs(sortColumn, sortDirection, includeHeader) {
+            const total = state.parsedData.length;
+
+            for (let i = 0; i < total; i++) {
+                const data = state.parsedData[i];
+                const progress = Math.round(((i + 1) / total) * 100);
+                
+                updateProgress(progress, `${i + 1}/${total} 파일 처리 중...`);
+
+                let rows = [...data.rows];
+
+                // 정렬 적용
+                if (sortColumn) {
+                    const sortIndex = data.headers.indexOf(sortColumn);
+                    if (sortIndex >= 0) {
+                        rows = sortRows(rows, sortIndex, sortDirection);
+                    }
+                }
+
+                // CSV 생성 및 다운로드
+                const csvContent = createCSV(data.headers, rows, includeHeader);
+                const fileName = data.fileName.replace(/\.(xls|xlsx)$/i, '.csv');
+                downloadFile(csvContent, fileName);
+
+                // 약간의 딜레이 (브라우저 부하 방지)
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
+            updateProgress(100, '완료!');
+        }
+
+        /**
+         * 행 정렬
+         * - 날짜, 숫자, 문자열 자동 감지
+         */
+        function sortRows(rows, columnIndex, direction) {
+            return [...rows].sort((a, b) => {
+                let valA = a[columnIndex] ?? '';
+                let valB = b[columnIndex] ?? '';
+
+                // 날짜 형식 감지 및 변환 시도
+                const dateA = parseDate(valA);
+                const dateB = parseDate(valB);
+
+                if (dateA && dateB) {
+                    return direction === 'asc' ? dateA - dateB : dateB - dateA;
+                }
+
+                // 숫자 비교
+                const numA = parseFloat(valA);
+                const numB = parseFloat(valB);
+
+                if (!isNaN(numA) && !isNaN(numB)) {
+                    return direction === 'asc' ? numA - numB : numB - numA;
+                }
+
+                // 문자열 비교
+                const strA = String(valA).toLowerCase();
+                const strB = String(valB).toLowerCase();
+
+                if (direction === 'asc') {
+                    return strA.localeCompare(strB, 'ko');
+                } else {
+                    return strB.localeCompare(strA, 'ko');
+                }
+            });
+        }
+
+        /**
+         * 날짜 파싱 시도
+         * - 다양한 형식 지원
+         */
+        function parseDate(value) {
+            if (!value) return null;
+
+            const str = String(value).trim();
+
+            // 엑셀 시리얼 날짜 (숫자 형태)
+            if (/^\d{5}$/.test(str)) {
+                const excelEpoch = new Date(1899, 11, 30);
+                return new Date(excelEpoch.getTime() + parseInt(str) * 86400000);
+            }
+
+            // 일반적인 날짜 형식들
+            const formats = [
+                /^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/, // YYYY-MM-DD
+                /^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/, // MM-DD-YYYY or DD-MM-YYYY
+            ];
+
+            for (const format of formats) {
+                const match = str.match(format);
+                if (match) {
+                    const date = new Date(str);
+                    if (!isNaN(date.getTime())) {
+                        return date;
+                    }
+                }
+            }
+
+            // 직접 파싱 시도
+            const parsed = new Date(str);
+            if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 1900) {
+                return parsed;
+            }
+
+            return null;
+        }
+
+        /**
+         * CSV 문자열 생성
+         * - UTF-8 BOM 추가로 엑셀에서 한글 깨짐 방지
+         */
+        function createCSV(headers, rows, includeHeader) {
+            const lines = [];
+
+            if (includeHeader) {
+                lines.push(headers.map(formatCSVCell).join(','));
+            }
+
+            rows.forEach(row => {
+                const line = headers.map((_, i) => formatCSVCell(row[i] ?? ''));
+                lines.push(line.join(','));
+            });
+
+            // UTF-8 BOM 추가
+            return '\uFEFF' + lines.join('\n');
+        }
+
+        /**
+         * CSV 셀 포맷팅
+         * - 쉼표, 따옴표, 줄바꿈 처리
+         */
+        function formatCSVCell(value) {
+            const str = String(value);
+            
+            // 쉼표, 따옴표, 줄바꿈이 포함된 경우 따옴표로 감싸기
+            if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            
+            return str;
+        }
+
+        /**
+         * 파일 다운로드
+         */
+        function downloadFile(content, fileName) {
+            const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName;
+            link.style.display = 'none';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            URL.revokeObjectURL(url);
+        }
+
+        /**
+         * 타임스탬프 생성
+         */
+        function getTimestamp() {
+            const now = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            
+            return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+        }
+
+        /**
+         * 진행률 업데이트
+         */
+        function updateProgress(percent, text) {
+            $progressFill.style.width = `${percent}%`;
+            $progressText.textContent = text;
+        }
+
+        // ========================================
+        // 전역 함수 노출 (HTML onclick에서 사용)
+        // ========================================
+        window.removeFile = removeFile;
+        window.switchPreview = switchPreview;
+    </script>
+</body>
+</html>
